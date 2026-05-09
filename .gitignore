@@ -1,0 +1,41 @@
+# Python / Môi trường
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# OS Generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Dữ liệu dự án
+dataset/
+data/
+
+# Bỏ qua các file cache mảng numpy trong thư mục outputs
+# (VD: X_raw.npy nặng ~320MB, Github không cho phép file > 100MB)
+outputs/*.npy

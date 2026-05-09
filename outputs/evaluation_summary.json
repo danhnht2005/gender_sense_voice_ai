@@ -1,0 +1,47 @@
+{
+  "accuracy": 1.0,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1_score": 1.0,
+  "auc": 1.0,
+  "confusion_matrix": [
+    [
+      1263,
+      0
+    ],
+    [
+      0,
+      867
+    ]
+  ],
+  "total_test_samples": 2130,
+  "male_samples": 1263,
+  "female_samples": 867,
+  "classification_report": {
+    "Male (0)": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 1263.0
+    },
+    "Female (1)": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 867.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 2130.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 2130.0
+    }
+  }
+}
