@@ -36,6 +36,9 @@ Thumbs.db
 dataset/
 data/
 
+# Bỏ qua file audio tạm khi API xử lý upload
+api/temp/
+
 # Bỏ qua các file cache mảng numpy trong thư mục outputs
 # (VD: X_raw.npy nặng ~320MB, Github không cho phép file > 100MB)
 outputs/*.npy
