@@ -13,6 +13,7 @@
     "axios": "^1.16.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "sass": "^1.99.0",
     "wavesurfer.js": "^7.12.6"
   },
   "devDependencies": {
