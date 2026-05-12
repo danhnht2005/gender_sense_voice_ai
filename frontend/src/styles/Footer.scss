@@ -1,0 +1,20 @@
+/* --- FOOTER --- */
+.footer {
+  border-top: 1px solid var(--border-glass);
+  padding: 1.25rem 0;
+  margin-top: auto;
+
+  &-inner {
+    text-align: center;
+  }
+
+  &-text {
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+
+  &-tech {
+    font-size: 0.7rem;
+    margin-top: 0.25rem;
+  }
+}
