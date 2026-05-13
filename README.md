@@ -125,7 +125,7 @@ Input Audio (3s, 16kHz)
 
 ### Dataset
 
-- **Nguồn:** CMU Arctic Corpus
+- **Nguồn:** https://drive.google.com/drive/folders/16MsyJGC9iFV6CnHuI6q8VCM8lK_WMBIM?usp=drive_link
 - **Tổng mẫu:** 14,196 file audio
 - **Phân chia:** 70% Train / 15% Validation / 15% Test
 - **Tham số audio:** 16kHz, mono, 3 giây/mẫu
@@ -198,7 +198,7 @@ gender_sense_voice_ai/
 ### 1. Clone repository
 
 ```bash
-git clone https://github.com/<danhnht2005>/gender_sense_voice_ai.git
+git clone https://github.com/danhnht2005/gender_sense_voice_ai.git
 cd gender_sense_voice_ai
 ```
 
