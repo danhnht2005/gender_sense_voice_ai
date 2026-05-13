@@ -44,6 +44,12 @@ export default function App() {
     }
   }, []);
 
+  const handleReset = () => {
+    setAudioFile(null);
+    setResult(null);
+    setError(null);
+  };
+
   return (
     <>
       <Header />
@@ -90,6 +96,35 @@ export default function App() {
 
           {/* Result */}
           <ResultDisplay result={result} isLoading={isLoading} />
+
+          {/* Reset Button */}
+          {(audioFile || result) && !isLoading && (
+            <div
+              className="reset-section section"
+              style={{ textAlign: "center" }}
+            >
+              <button
+                className="btn btn-outline"
+                onClick={handleReset}
+                id="reset-button"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="1 4 1 10 7 10" />
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                </svg>
+                Thu lai
+              </button>
+            </div>
+          )}
         </div>
       </main>
 
