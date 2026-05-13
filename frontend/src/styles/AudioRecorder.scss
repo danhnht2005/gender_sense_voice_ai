@@ -1,0 +1,48 @@
+/* --- RECORDER --- */
+.recorder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+
+  &-active {
+    border-color: rgba(239, 68, 68, 0.4) !important;
+    background: rgba(239, 68, 68, 0.06) !important;
+  }
+
+  &-btn {
+    width: 100%;
+    padding: 1rem;
+    font-size: 1rem;
+  }
+
+  &-recording {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+  }
+
+  &-pulse {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ef4444;
+    animation: recording 1.5s ease infinite;
+    flex-shrink: 0;
+  }
+
+  &-timer {
+    font-family: "Inter", monospace;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 2px;
+  }
+
+  &-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    flex: 1;
+  }
+}

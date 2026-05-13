@@ -20,6 +20,56 @@
   gap: 1rem;
 }
 
+/* Probability Bars */
+.result-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.result-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.result-bar-label {
+  width: 32px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.result-bar-value {
+  width: 48px;
+  text-align: right;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.result-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-glass);
+}
+
+/* --- ERROR --- */
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+  background: rgba(239, 68, 68, 0.06) !important;
+  font-size: 0.85rem;
+}
+
 /* --- RESPONSIVE --- */
 @media (max-width: 640px) {
   .input-grid {

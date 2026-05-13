@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import "../styles/AudioUploader.scss";
 
@@ -19,7 +19,7 @@ const isAudioFile = (file) => {
 };
 
 export default function AudioUploader({ onFileSelect, disabled }) {
-  const [isDragging, setIsDragging] = React.useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const handleDrop = useCallback(
     (e) => {
