@@ -6,6 +6,7 @@ import Footer from "./components/Footer";
 import AudioUploader from "./components/AudioUploader";
 import AudioRecorder from "./components/AudioRecorder";
 import WaveformVisualizer from "./components/WaveformVisualizer";
+import ResultDisplay from "./components/ResultDisplay";
 
 import "./App.css";
 
@@ -65,6 +66,30 @@ export default function App() {
 
           {/* Waveform */}
           <WaveformVisualizer audioFile={audioFile} />
+
+          {/* Error */}
+          {error && (
+            <div className="error-banner section glass-card animate-slide-up">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#ef4444"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Result */}
+          <ResultDisplay result={result} isLoading={isLoading} />
         </div>
       </main>
 
