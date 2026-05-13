@@ -7,6 +7,7 @@ import AudioUploader from "./components/AudioUploader";
 import AudioRecorder from "./components/AudioRecorder";
 import WaveformVisualizer from "./components/WaveformVisualizer";
 import ResultDisplay from "./components/ResultDisplay";
+import ModelInfo from "./components/ModelInfo";
 
 import "./App.css";
 
@@ -125,6 +126,9 @@ export default function App() {
               </button>
             </div>
           )}
+
+          {/* Model Info */}
+          <ModelInfo />
         </div>
       </main>
 

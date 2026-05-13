@@ -1,3 +1,5 @@
+import "../styles/ResultDisplay.scss";
+
 export default function ResultDisplay({ result, isLoading }) {
   if (isLoading) {
     return (
