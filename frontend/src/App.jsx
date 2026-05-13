@@ -4,6 +4,7 @@ import axios from "axios";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import AudioUploader from "./components/AudioUploader";
+import AudioRecorder from "./components/AudioRecorder";
 
 import "./App.css";
 
@@ -51,6 +52,10 @@ export default function App() {
             <div className="input-grid">
               <AudioUploader
                 onFileSelect={handlePredict}
+                disabled={isLoading}
+              />
+              <AudioRecorder
+                onRecordingComplete={handlePredict}
                 disabled={isLoading}
               />
             </div>
