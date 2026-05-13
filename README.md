@@ -198,7 +198,7 @@ gender_sense_voice_ai/
 ### 1. Clone repository
 
 ```bash
-git clone https://github.com/<username>/gender_sense_voice_ai.git
+git clone https://github.com/<danhnht2005>/gender_sense_voice_ai.git
 cd gender_sense_voice_ai
 ```
 
