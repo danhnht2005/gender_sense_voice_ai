@@ -40,7 +40,7 @@ export default function ModelInfo() {
             <circle cx="6" cy="18" r="3" />
             <circle cx="18" cy="18" r="3" />
           </svg>
-          <span>Thong tin mo hinh</span>
+          <span>Thông tin mô hình</span>
         </div>
         <svg
           width="16"
@@ -62,16 +62,15 @@ export default function ModelInfo() {
         <div className="model-info-content animate-slide-down">
           <div className="model-info-grid">
             <div className="model-info-item">
-              <span className="model-info-label">Kien truc</span>
+              <span className="model-info-label">Kiến trúc</span>
               <span className="model-info-value">
                 {info.model_name
-                  .replace(/_/g, " + ")
-                  .replace("Model", "")
-                  .trim()}
+                  .replace("_Model", "")
+                  .replace(/_/g, " + ")}
               </span>
             </div>
             <div className="model-info-item">
-              <span className="model-info-label">Tham so</span>
+              <span className="model-info-label">Tham số</span>
               <span className="model-info-value">
                 {info.total_parameters.toLocaleString()}
               </span>
@@ -81,7 +80,7 @@ export default function ModelInfo() {
               <span className="model-info-value">{info.best_epoch}</span>
             </div>
             <div className="model-info-item">
-              <span className="model-info-label">Do chinh xac</span>
+              <span className="model-info-label">Độ chính xác</span>
               <span
                 className="model-info-value"
                 style={{ color: "var(--accent-green)" }}
@@ -90,11 +89,11 @@ export default function ModelInfo() {
               </span>
             </div>
             <div className="model-info-item">
-              <span className="model-info-label">Dac trung</span>
+              <span className="model-info-label">Đặc trưng</span>
               <span className="model-info-value">{info.features}</span>
             </div>
             <div className="model-info-item">
-              <span className="model-info-label">Thiet bi</span>
+              <span className="model-info-label">Thiết bị</span>
               <span className="model-info-value">
                 {info.device.toUpperCase()}
               </span>

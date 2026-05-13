@@ -41,7 +41,7 @@ export default function AudioRecorder({ onRecordingComplete, disabled }) {
         setDuration(sec);
       }, 1000);
     } catch (err) {
-      alert("Khong the truy cap microphone. Vui long cap quyen truy cap.");
+      alert("Không thể truy cập microphone. Vui lòng cấp quyền truy cập.");
       console.error("Microphone error:", err);
     }
   }, [onRecordingComplete]);
@@ -87,13 +87,13 @@ export default function AudioRecorder({ onRecordingComplete, disabled }) {
             <line x1="12" y1="19" x2="12" y2="23" />
             <line x1="8" y1="23" x2="16" y2="23" />
           </svg>
-          Ghi am tu Mic
+          Ghi âm từ Mic
         </button>
       ) : (
         <div className="recorder-recording">
           <div className="recorder-pulse"></div>
           <span className="recorder-timer">{formatTime(duration)}</span>
-          <span className="recorder-label">Dang ghi am...</span>
+          <span className="recorder-label">Đang ghi âm...</span>
           <button
             className="btn btn-danger"
             onClick={stopRecording}
@@ -102,7 +102,7 @@ export default function AudioRecorder({ onRecordingComplete, disabled }) {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
               <rect x="4" y="4" width="16" height="16" rx="2" />
             </svg>
-            Dung
+            Dừng
           </button>
         </div>
       )}
