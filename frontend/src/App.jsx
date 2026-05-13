@@ -5,6 +5,7 @@ import Header from "./components/Header";
 import Footer from "./components/Footer";
 import AudioUploader from "./components/AudioUploader";
 import AudioRecorder from "./components/AudioRecorder";
+import WaveformVisualizer from "./components/WaveformVisualizer";
 
 import "./App.css";
 
@@ -48,6 +49,7 @@ export default function App() {
 
       <main className="main">
         <div className="container">
+          {/* Input Section */}
           <div className="input-section section">
             <div className="input-grid">
               <AudioUploader
@@ -60,6 +62,9 @@ export default function App() {
               />
             </div>
           </div>
+
+          {/* Waveform */}
+          <WaveformVisualizer audioFile={audioFile} />
         </div>
       </main>
 
