@@ -313,6 +313,7 @@ class TCN_Transformer_Attention_Model(nn.Module):
         # Projection layer: tcn_channels → embed_dim (nếu khác nhau)
         self.projection = nn.Linear(tcn_channels, embed_dim) \
             if tcn_channels != embed_dim else nn.Identity()
+        self.projection_bn = nn.BatchNorm1d(embed_dim)
         
         # Positional Encoding
         self.pos_encoder = PositionalEncoding(embed_dim, dropout=dropout)
@@ -325,10 +326,12 @@ class TCN_Transformer_Attention_Model(nn.Module):
         
         # Attention Aggregation
         self.attention = Attention(embed_dim)
+        self.context_bn = nn.BatchNorm1d(embed_dim)
         
         # Classification Head
         self.classifier = nn.Sequential(
             nn.Linear(embed_dim, 32),
+            nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(32, 1)  # Binary classification (logit)
@@ -352,6 +355,7 @@ class TCN_Transformer_Attention_Model(nn.Module):
         
         # Projection: (batch, T, tcn_channels) → (batch, T, embed_dim)
         x = self.projection(x)
+        x = self.projection_bn(x.transpose(1, 2)).transpose(1, 2)
         
         # Positional Encoding
         x = self.pos_encoder(x)
@@ -362,6 +366,7 @@ class TCN_Transformer_Attention_Model(nn.Module):
         
         # Attention Aggregation: (batch, T, embed_dim) → (batch, embed_dim)
         x = self.attention(x)
+        x = self.context_bn(x)
         
         # Classification: (batch, embed_dim) → (batch, 1)
         x = self.classifier(x)

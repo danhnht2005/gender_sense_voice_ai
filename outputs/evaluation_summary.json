@@ -1,47 +1,47 @@
 {
-  "accuracy": 1.0,
+  "accuracy": 0.999561403508772,
   "precision": 1.0,
-  "recall": 1.0,
-  "f1_score": 1.0,
-  "auc": 1.0,
+  "recall": 0.998898678414097,
+  "f1_score": 0.9994490358126722,
+  "auc": 0.9999991972874738,
   "confusion_matrix": [
     [
-      1263,
+      1372,
       0
     ],
     [
-      0,
-      867
+      1,
+      907
     ]
   ],
-  "total_test_samples": 2130,
-  "male_samples": 1263,
-  "female_samples": 867,
+  "total_test_samples": 2280,
+  "male_samples": 1372,
+  "female_samples": 908,
   "classification_report": {
     "Male (0)": {
-      "precision": 1.0,
+      "precision": 0.9992716678805535,
       "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 1263.0
+      "f1-score": 0.9996357012750455,
+      "support": 1372.0
     },
     "Female (1)": {
       "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 867.0
+      "recall": 0.998898678414097,
+      "f1-score": 0.9994490358126722,
+      "support": 908.0
     },
-    "accuracy": 1.0,
+    "accuracy": 0.999561403508772,
     "macro avg": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 2130.0
+      "precision": 0.9996358339402768,
+      "recall": 0.9994493392070485,
+      "f1-score": 0.9995423685438589,
+      "support": 2280.0
     },
     "weighted avg": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 2130.0
+      "precision": 0.9995617229526839,
+      "recall": 0.999561403508772,
+      "f1-score": 0.9995613625733636,
+      "support": 2280.0
     }
   }
 }

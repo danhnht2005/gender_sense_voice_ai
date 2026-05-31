@@ -39,6 +39,7 @@ from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from demo import build_dataset
+from train import make_group_split
 from model_tcn_transformer_attention import TCN_Transformer_Attention_Model, count_parameters
 
 
@@ -418,18 +419,16 @@ def main():
     
     # ==== Load Data ====
     print("\n[1] Loading data...")
-    X, y = build_dataset(dataset_dir=DATASET_DIR, cache_dir=OUTPUTS_DIR)
+    X, y, sample_ids, group_ids = build_dataset(dataset_dir=DATASET_DIR, cache_dir=OUTPUTS_DIR)
     
-    # Stratified split (same as train.py)
+    # Group split (same as train.py) to avoid repeated utterance leakage.
     SEED = 42
     np.random.seed(SEED)
-    
-    X_train, X_temp, y_train, y_temp = train_test_split(
-        X, y, test_size=0.30, random_state=SEED, stratify=y
-    )
-    X_val, X_test, y_val, y_test = train_test_split(
-        X_temp, y_temp, test_size=0.50, random_state=SEED, stratify=y_temp
-    )
+
+    train_idx, val_idx, test_idx = make_group_split(y, group_ids.astype(str), seed=SEED)
+    X_train, y_train = X[train_idx], y[train_idx]
+    X_val, y_val = X[val_idx], y[val_idx]
+    X_test, y_test = X[test_idx], y[test_idx]
     
     print(f"  Train: {X_train.shape[0]}, Val: {X_val.shape[0]}, Test: {X_test.shape[0]}")
     
