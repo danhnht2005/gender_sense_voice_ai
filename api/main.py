@@ -118,6 +118,8 @@ async def get_model_info():
         total_parameters=info["total_parameters"],
         best_epoch=info["best_epoch"],
         training_accuracy=info["training_accuracy"],
+        features=info["features"],
+        input_shape=info["input_shape"],
         device=info["device"],
     )
 
@@ -156,7 +158,7 @@ async def predict(file: UploadFile = File(..., description="File audio (.wav, .m
 
     try:
         # Bước 1: Xử lý audio → MFCC features
-        mfcc = await process_upload(file)
+        mfcc = await process_upload(file, n_mfcc=model_service.input_dim)
 
         # Bước 2: Dự đoán
         result = model_service.predict(mfcc)

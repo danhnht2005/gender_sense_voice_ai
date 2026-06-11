@@ -44,13 +44,10 @@ def tien_xu_ly(file_path, sr=16000, duration=3.0):
     return xu_ly_nhieu(y, sr), sr
 
 
-def trich_xuat_mfcc(y, sr, n_mfcc=20):
-    """Extract MFCC + delta + delta2 features with shape (T, 3*n_mfcc)."""
+def trich_xuat_mfcc(y, sr, n_mfcc=13):
+    """Extract plain MFCC features with shape (T, n_mfcc)."""
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
-    mfcc_delta = librosa.feature.delta(mfcc)
-    mfcc_delta2 = librosa.feature.delta(mfcc, order=2)
-    return np.concatenate([mfcc, mfcc_delta, mfcc_delta2], axis=0).T
-
+    return mfcc.T
 
 def canonical_group_id(file_path):
     """
@@ -84,7 +81,7 @@ def _collect_files(dataset_dir, sr, duration, n_mfcc):
             continue
 
         for fname in sorted(os.listdir(class_dir)):
-            if not fname.lower().endswith(".wav"):
+            if not fname.lower().endswith((".wav", ".mp3")):
                 continue
             path = os.path.join(class_dir, fname)
             sample_id = os.path.relpath(path, dataset_dir).replace("\\", "/")
@@ -98,7 +95,7 @@ def build_dataset(
     dataset_dir,
     sr=16000,
     duration=3.0,
-    n_mfcc=20,
+    n_mfcc=13,
     max_workers=4,
     cache_dir=None,
     force_rebuild=False,
@@ -234,7 +231,7 @@ if __name__ == "__main__":
         dataset_dir=dataset_dir,
         sr=16000,
         duration=3.0,
-        n_mfcc=20,
+        n_mfcc=13,
         max_workers=4,
         cache_dir=outputs_dir,
     )

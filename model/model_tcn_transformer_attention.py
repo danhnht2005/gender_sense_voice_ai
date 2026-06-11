@@ -24,38 +24,41 @@ import math
 # 1. TCN Block — Temporal Convolutional Network
 # ==============================================================================
 
+# ==============================================================================
+# 1. TCN Block — Causal Temporal Convolutional Network
+# ==============================================================================
+
+class Chomp1d(nn.Module):
+    """
+    Cắt bỏ phần đệm (padding) thừa ở bên phải của chuỗi thời gian để 
+    đảm bảo tính chất Causal (Nhân quả) - model không nhìn thấy tương lai.
+    """
+    def __init__(self, chomp_size):
+        super(Chomp1d, self).__init__()
+        self.chomp_size = chomp_size
+
+    def forward(self, x):
+        # x.contiguous() để tránh lỗi memory layout, sau đó cắt phần tử cuối
+        return x[:, :, :-self.chomp_size].contiguous()
+
 class TCNBlock(nn.Module):
     """
-    Temporal Convolutional Block với dilated convolution.
-    
-    Dilated Conv cho phép mở rộng receptive field mà không tăng số params:
-      - dilation=1: nhìn 3 time steps
-      - dilation=2: nhìn 5 time steps  
-      - dilation=4: nhìn 9 time steps
-    
-    Bao gồm: Conv1d → BatchNorm → ReLU → Dropout → Residual Connection
-    
-    Args:
-        in_channels  (int)  : Số kênh đầu vào
-        out_channels (int)  : Số kênh đầu ra
-        kernel_size  (int)  : Kích thước kernel (default: 3)
-        dilation     (int)  : Hệ số dilation (default: 1)
-        dropout      (float): Tỉ lệ dropout (default: 0.2)
+    Causal Temporal Convolutional Block với Dilated Convolution.
     """
-    
     def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, dropout=0.2):
         super(TCNBlock, self).__init__()
         
-        # Padding để giữ nguyên chiều dài sequence sau convolution
-        # padding = (kernel_size - 1) * dilation // 2  (causal-style)
-        padding = (kernel_size - 1) * dilation // 2
+        # Để đảm bảo Causal, ta pad toàn bộ (K-1)*D vào hai bên, 
+        # sau đó dùng Chomp1d để cắt bỏ phần bên phải.
+        causal_padding = (kernel_size - 1) * dilation
         
         self.conv1 = nn.Conv1d(
             in_channels, out_channels, 
             kernel_size=kernel_size,
             dilation=dilation, 
-            padding=padding
+            padding=causal_padding
         )
+        self.chomp1 = Chomp1d(causal_padding)
         self.bn1 = nn.BatchNorm1d(out_channels)
         self.dropout1 = nn.Dropout(dropout)
         
@@ -63,41 +66,31 @@ class TCNBlock(nn.Module):
             out_channels, out_channels,
             kernel_size=kernel_size,
             dilation=dilation,
-            padding=padding
+            padding=causal_padding
         )
+        self.chomp2 = Chomp1d(causal_padding)
         self.bn2 = nn.BatchNorm1d(out_channels)
         self.dropout2 = nn.Dropout(dropout)
         
-        # Residual connection: nếu in_channels != out_channels, dùng 1x1 conv
         self.residual = nn.Conv1d(in_channels, out_channels, 1) \
             if in_channels != out_channels else nn.Identity()
         
         self.relu = nn.ReLU()
     
     def forward(self, x):
-        """
-        Args:
-            x: (batch, channels, T) — input tensor
-        Returns:
-            (batch, out_channels, T) — output tensor
-        """
         residual = self.residual(x)
         
         out = self.conv1(x)
+        out = self.chomp1(out) # Cắt bỏ tương lai
         out = self.bn1(out)
         out = self.relu(out)
         out = self.dropout1(out)
         
         out = self.conv2(out)
+        out = self.chomp2(out) # Cắt bỏ tương lai
         out = self.bn2(out)
         out = self.relu(out)
         out = self.dropout2(out)
-        
-        # Cắt/pad nếu cần để khớp chiều dài
-        if out.shape[2] != residual.shape[2]:
-            min_len = min(out.shape[2], residual.shape[2])
-            out = out[:, :, :min_len]
-            residual = residual[:, :, :min_len]
         
         return self.relu(out + residual)
 
@@ -389,6 +382,45 @@ def count_parameters(model):
         int: Tổng số tham số trainable
     """
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def infer_model_hyperparameters(checkpoint):
+    """Return architecture args, filling old checkpoints that lack metadata."""
+    hp = dict(checkpoint.get("hyperparameters", {}))
+    state = checkpoint.get("model_state_dict", {})
+
+    conv0 = state.get("tcn.0.conv1.weight")
+    if conv0 is not None:
+        hp.setdefault("tcn_channels", int(conv0.shape[0]))
+        hp.setdefault("input_dim", int(conv0.shape[1]))
+
+    pe = state.get("pos_encoder.pe")
+    if pe is not None:
+        hp.setdefault("embed_dim", int(pe.shape[-1]))
+
+    tcn_blocks = set()
+    transformer_blocks = set()
+    for key in state:
+        parts = key.split(".")
+        if len(parts) > 2 and parts[0] == "tcn" and parts[1].isdigit():
+            tcn_blocks.add(int(parts[1]))
+        if len(parts) > 2 and parts[0] == "transformers" and parts[1].isdigit():
+            transformer_blocks.add(int(parts[1]))
+
+    if tcn_blocks:
+        hp.setdefault("num_tcn", len(tcn_blocks))
+    if transformer_blocks:
+        hp.setdefault("num_transformer", len(transformer_blocks))
+
+    embed_dim = int(hp.get("embed_dim", 64))
+    hp.setdefault("num_heads", 2 if embed_dim < 32 else 4)
+    hp.setdefault("input_dim", 60)
+    hp.setdefault("embed_dim", embed_dim)
+    hp.setdefault("tcn_channels", hp.get("embed_dim", 64))
+    hp.setdefault("num_tcn", 3)
+    hp.setdefault("num_transformer", 1)
+    hp.setdefault("dropout", 0.2)
+    return hp
 
 
 def model_summary(model, input_shape=(4, 94, 60)):

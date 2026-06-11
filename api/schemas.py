@@ -69,11 +69,11 @@ class ModelInfoResponse(BaseModel):
         examples=[1.0]
     )
     features: str = Field(
-        default="MFCC(20) + Delta + Delta2 = 60 features",
+        default="MFCC(13) = 13 features",
         description="Loại đặc trưng âm thanh được sử dụng"
     )
     input_shape: str = Field(
-        default="(batch, 94, 60)",
+        default="(batch, 94, 13)",
         description="Kích thước đầu vào của mô hình"
     )
     device: str = Field(

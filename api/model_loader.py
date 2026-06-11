@@ -20,7 +20,11 @@ PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 
-from model.model_tcn_transformer_attention import TCN_Transformer_Attention_Model, count_parameters
+from model.model_tcn_transformer_attention import (
+    TCN_Transformer_Attention_Model,
+    count_parameters,
+    infer_model_hyperparameters,
+)
 
 
 class ModelService:
@@ -41,6 +45,8 @@ class ModelService:
         self.device = None
         self.norm_mean = None
         self.norm_std = None
+        self.input_dim = None
+        self.time_steps = None
         self.model_info = {}
         self._is_loaded = False
 
@@ -74,9 +80,11 @@ class ModelService:
         checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)
 
         # --- 3. Khởi tạo model với hyperparameters từ checkpoint ---
-        hp = checkpoint.get("hyperparameters", {})
+        hp = infer_model_hyperparameters(checkpoint)
+        self.input_dim = int(hp["input_dim"])
+        self.time_steps = int(hp.get("time_steps", 94))
         self.model = TCN_Transformer_Attention_Model(
-            input_dim=hp.get("input_dim", 60),
+            input_dim=self.input_dim,
             embed_dim=hp.get("embed_dim", 64),
             num_heads=hp.get("num_heads", 4),
             tcn_channels=hp.get("tcn_channels", 64),
@@ -108,6 +116,22 @@ class ModelService:
             norm_stats = json.load(f)
         self.norm_mean = np.array(norm_stats["mean"], dtype=np.float32)
         self.norm_std = np.array(norm_stats["std"], dtype=np.float32)
+        expected_shape = (self.input_dim,)
+        if self.norm_mean.shape != expected_shape or self.norm_std.shape != expected_shape:
+            raise ValueError(
+                "Normalization stats do not match the model input: "
+                f"model expects {self.input_dim} features, "
+                f"mean shape={self.norm_mean.shape}, std shape={self.norm_std.shape}."
+            )
+        if np.any(self.norm_std <= 0):
+            raise ValueError("Normalization std must contain only positive values.")
+
+        self.model_info.update(
+            {
+                "features": f"MFCC({self.input_dim}) = {self.input_dim} features",
+                "input_shape": f"(batch, {self.time_steps}, {self.input_dim})",
+            }
+        )
 
         self._is_loaded = True
         print("[ModelService] Ready for inference!")
@@ -117,7 +141,7 @@ class ModelService:
         Dự đoán giới tính từ ma trận MFCC features.
 
         Args:
-            mfcc (np.ndarray): MFCC features shape (T, 60)
+            mfcc (np.ndarray): MFCC features shape (T, input_dim)
 
         Returns:
             dict: {
@@ -134,9 +158,13 @@ class ModelService:
             raise RuntimeError("Model chưa được load! Gọi load() trước.")
 
         # Bước 1: Normalize features (dùng mean/std từ training set)
+        if mfcc.ndim != 2 or mfcc.shape[1] != self.input_dim:
+            raise ValueError(
+                f"Invalid MFCC shape {mfcc.shape}; expected (time, {self.input_dim})."
+            )
         mfcc_norm = (mfcc - self.norm_mean) / self.norm_std
 
-        # Bước 2: Chuyển sang PyTorch tensor — shape: (1, T, 60)
+        # Bước 2: Chuyển sang PyTorch tensor — shape: (1, T, input_dim)
         x = torch.FloatTensor(mfcc_norm).unsqueeze(0).to(self.device)
 
         # Bước 3: Inference (tắt tính gradient để tăng tốc)

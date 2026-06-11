@@ -25,7 +25,10 @@ import torch
 
 # Import từ model package
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from model_tcn_transformer_attention import TCN_Transformer_Attention_Model
+from model_tcn_transformer_attention import (
+    TCN_Transformer_Attention_Model,
+    infer_model_hyperparameters,
+)
 from demo import tien_xu_ly, trich_xuat_mfcc
 
 
@@ -73,9 +76,10 @@ class GenderPredictor:
         checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)
         
         # Lấy hyperparameters từ checkpoint
-        hp = checkpoint.get('hyperparameters', {})
+        hp = infer_model_hyperparameters(checkpoint)
+        self.input_dim = int(hp["input_dim"])
         self.model = TCN_Transformer_Attention_Model(
-            input_dim=hp.get('input_dim', 60),
+            input_dim=self.input_dim,
             embed_dim=hp.get('embed_dim', 64),
             num_heads=hp.get('num_heads', 4),
             tcn_channels=hp.get('tcn_channels', 64),
@@ -95,10 +99,17 @@ class GenderPredictor:
             norm_stats = json.load(f)
         self.norm_mean = np.array(norm_stats['mean'], dtype=np.float32)
         self.norm_std = np.array(norm_stats['std'], dtype=np.float32)
+        expected_shape = (self.input_dim,)
+        if self.norm_mean.shape != expected_shape or self.norm_std.shape != expected_shape:
+            raise ValueError(
+                "Normalization stats do not match the model input: "
+                f"expected {expected_shape}, got "
+                f"{self.norm_mean.shape} and {self.norm_std.shape}."
+            )
         
         print(f"[INFO] Predictor ready on {self.device}")
     
-    def predict(self, audio_path, sr=16000, duration=3.0, n_mfcc=20):
+    def predict(self, audio_path, sr=16000, duration=3.0):
         """
         Dự đoán giới tính từ file audio.
         
@@ -106,7 +117,6 @@ class GenderPredictor:
             audio_path : Đường dẫn file .wav
             sr         : Sample rate (16000)
             duration   : Độ dài audio (3.0s)
-            n_mfcc     : Số MFCC coefficients (20)
         
         Returns:
             dict: {
@@ -120,12 +130,12 @@ class GenderPredictor:
         y, sr = tien_xu_ly(audio_path, sr=sr, duration=duration)
         
         # 2. Trích xuất MFCC
-        mfcc = trich_xuat_mfcc(y, sr, n_mfcc=n_mfcc)  # (T, 60)
+        mfcc = trich_xuat_mfcc(y, sr, n_mfcc=self.input_dim)
         
         # 3. Normalize
         mfcc = (mfcc - self.norm_mean) / self.norm_std
         
-        # 4. Chuyển sang tensor: (1, T, 60)
+        # 4. Chuyển sang tensor: (1, T, input_dim)
         x = torch.FloatTensor(mfcc).unsqueeze(0).to(self.device)
         
         # 5. Inference
@@ -144,14 +154,13 @@ class GenderPredictor:
             'probability_male': prob_male
         }
     
-    def predict_from_array(self, y, sr, n_mfcc=20):
+    def predict_from_array(self, y, sr):
         """
         Dự đoán từ numpy array (dùng cho API).
         
         Args:
             y      : numpy array audio signal
             sr     : sample rate
-            n_mfcc : số MFCC coefficients
         
         Returns:
             dict: Kết quả dự đoán
@@ -169,7 +178,7 @@ class GenderPredictor:
         y = xu_ly_nhieu(y, sr)
         
         # Trích xuất MFCC
-        mfcc = trich_xuat_mfcc(y, sr, n_mfcc=n_mfcc)
+        mfcc = trich_xuat_mfcc(y, sr, n_mfcc=self.input_dim)
         
         # Normalize
         mfcc = (mfcc - self.norm_mean) / self.norm_std

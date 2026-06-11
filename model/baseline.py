@@ -1,550 +1,519 @@
-"""
-baseline.py — Baseline Models & So Sánh
-=========================================
-Train và đánh giá 3 baseline models, so sánh với model chính.
+"""Train CNN/TCN baselines under the same protocol as the main model."""
 
-Baselines:
-  B1. SVM (RBF kernel)     — Traditional ML, flatten MFCC
-  B2. Random Forest        — Traditional ML, 200 trees
-  B3. Simple 1D-CNN        — Deep Learning baseline
-
-Output:
-  - baseline_results.json     : Số liệu so sánh
-  - baseline_comparison.png   : Bar chart so sánh
-"""
-
+import json
 import os
 import sys
-import json
 import time
+from dataclasses import asdict
+
+import matplotlib
 import numpy as np
-
-# Fix Windows console encoding
-if sys.stdout.encoding != 'utf-8':
-    sys.stdout.reconfigure(encoding='utf-8')
-
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (
-    accuracy_score, f1_score, roc_auc_score, 
-    classification_report, confusion_matrix
-)
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix, roc_auc_score
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+if sys.stdout.encoding != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from demo import build_dataset
-from train import make_group_split
-from model_tcn_transformer_attention import TCN_Transformer_Attention_Model, count_parameters
+from train import (  # noqa: E402
+    TrainConfig,
+    build_scheduler,
+    evaluate_loader,
+    is_better,
+    make_loader,
+    make_trial_loaders,
+    plot_history,
+    prepare_data,
+    set_seed,
+    train_one_epoch,
+)
 
 
-# ==============================================================================
-# 1. Simple 1D-CNN Baseline
-# ==============================================================================
+class PureCNN(nn.Module):
+    """Plain 1D CNN baseline with global average pooling."""
 
-class SimpleCNN(nn.Module):
-    """
-    Simple 1D-CNN baseline cho so sánh.
-    
-    Architecture:
-        Conv1d(60→32) → ReLU → Conv1d(32→64) → ReLU → Conv1d(64→64) → ReLU
-        → AdaptiveAvgPool1d(1) → FC(64→1)
-    
-    ~15K params
-    """
-    
-    def __init__(self, input_dim=60):
-        super(SimpleCNN, self).__init__()
-        
+    def __init__(self, input_dim, channels=64, dropout=0.5):
+        super().__init__()
         self.features = nn.Sequential(
-            nn.Conv1d(input_dim, 32, kernel_size=3, padding=1),
+            nn.Conv1d(input_dim, 32, kernel_size=5, padding=2),
             nn.BatchNorm1d(32),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            
-            nn.Conv1d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm1d(64),
+            nn.Dropout(dropout),
+            nn.Conv1d(32, channels, kernel_size=5, padding=2),
+            nn.BatchNorm1d(channels),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            
-            nn.Conv1d(64, 64, kernel_size=3, padding=1),
-            nn.BatchNorm1d(64),
+            nn.Dropout(dropout),
+            nn.Conv1d(channels, channels, kernel_size=3, padding=1),
+            nn.BatchNorm1d(channels),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(dropout),
         )
-        
         self.pool = nn.AdaptiveAvgPool1d(1)
-        
         self.classifier = nn.Sequential(
-            nn.Linear(64, 32),
+            nn.Linear(channels, 32),
             nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(32, 1)
+            nn.Dropout(dropout),
+            nn.Linear(32, 1),
         )
-    
+
     def forward(self, x):
-        """
-        Args:
-            x: (batch, T, F) — T=94, F=60
-        Returns:
-            (batch, 1)
-        """
-        # (batch, T, F) → (batch, F, T)
-        x = x.permute(0, 2, 1)
-        
-        x = self.features(x)      # (batch, 64, T)
-        x = self.pool(x)          # (batch, 64, 1)
-        x = x.squeeze(-1)         # (batch, 64)
-        x = self.classifier(x)    # (batch, 1)
-        
-        return x
+        x = self.features(x.permute(0, 2, 1))
+        return self.classifier(self.pool(x).squeeze(-1))
 
 
-# ==============================================================================
-# 2. Train Simple CNN
-# ==============================================================================
+class TCNBlock(nn.Module):
+    """Dilated residual temporal convolution block."""
 
-def train_simple_cnn(X_train, y_train, X_val, y_val, X_test, y_test, device):
-    """
-    Train Simple 1D-CNN baseline.
-    
-    Returns:
-        dict: metrics {accuracy, f1, auc, params, train_time}
-    """
-    print("\n  Training Simple 1D-CNN...")
-    
-    model = SimpleCNN(input_dim=60).to(device)
-    params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"    Parameters: {params:,}")
-    
-    # DataLoaders
-    train_ds = TensorDataset(torch.FloatTensor(X_train), torch.FloatTensor(y_train))
-    val_ds = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val))
-    test_ds = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test))
-    
-    train_loader = DataLoader(train_ds, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=32, shuffle=False)
-    test_loader = DataLoader(test_ds, batch_size=32, shuffle=False)
-    
-    # Loss & optimizer
-    n_male = np.sum(y_train == 0)
-    n_female = np.sum(y_train == 1)
-    pos_weight = torch.tensor([n_male / n_female]).to(device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
-    
-    # Training
-    best_val_loss = float('inf')
-    patience = 10
-    patience_counter = 0
-    
-    start = time.time()
-    
-    for epoch in range(1, 51):
-        model.train()
-        for bx, by in train_loader:
-            bx, by = bx.to(device), by.to(device).unsqueeze(1)
-            optimizer.zero_grad()
-            out = model(bx)
-            loss = criterion(out, by)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-        
-        # Validate
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for bx, by in val_loader:
-                bx, by = bx.to(device), by.to(device).unsqueeze(1)
-                out = model(bx)
-                val_loss += criterion(out, by).item() * bx.size(0)
-        val_loss /= len(val_ds)
-        
-        scheduler.step(val_loss)
-        
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_state = model.state_dict().copy()
-            patience_counter = 0
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                break
-    
-    train_time = time.time() - start
-    
-    # Test evaluation
-    model.load_state_dict(best_state)
-    model.eval()
-    all_preds = []
-    all_probs = []
-    all_labels = []
-    
-    with torch.no_grad():
-        for bx, by in test_loader:
-            bx = bx.to(device)
-            out = model(bx)
-            probs = torch.sigmoid(out).cpu().numpy().flatten()
-            all_probs.extend(probs)
-            all_preds.extend((probs >= 0.5).astype(float))
-            all_labels.extend(by.numpy().flatten())
-    
-    y_pred = np.array(all_preds)
-    y_prob = np.array(all_probs)
-    y_true = np.array(all_labels)
-    
-    acc = accuracy_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred)
-    auc_score = roc_auc_score(y_true, y_prob)
-    
-    print(f"    Accuracy: {acc:.4f}, F1: {f1:.4f}, AUC: {auc_score:.4f}")
-    print(f"    Time: {train_time:.1f}s, Epochs: {epoch}")
-    
-    return {
-        'accuracy': float(acc),
-        'f1': float(f1),
-        'auc': float(auc_score),
-        'params': params,
-        'train_time': float(train_time),
-        'y_pred': y_pred,
-        'y_true': y_true,
-        'y_prob': y_prob
-    }
+    def __init__(self, in_channels, out_channels, dilation=1, dropout=0.5):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv1d(
+                in_channels,
+                out_channels,
+                kernel_size=3,
+                padding=dilation,
+                dilation=dilation,
+            ),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(
+                out_channels,
+                out_channels,
+                kernel_size=3,
+                padding=dilation,
+                dilation=dilation,
+            ),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
+        self.residual = (
+            nn.Conv1d(in_channels, out_channels, kernel_size=1)
+            if in_channels != out_channels
+            else nn.Identity()
+        )
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        return self.relu(self.net(x) + self.residual(x))
 
 
-# ==============================================================================
-# 3. Train SVM Baseline
-# ==============================================================================
+class PureTCN(nn.Module):
+    """Pure TCN baseline with global average pooling."""
 
-def train_svm(X_train_flat, y_train, X_test_flat, y_test):
-    """
-    Train SVM (RBF kernel) baseline.
-    
-    Returns:
-        dict: metrics
-    """
-    print("\n  Training SVM (RBF kernel)...")
-    print(f"    Input shape: {X_train_flat.shape}")
-    
-    start = time.time()
-    
-    svm = SVC(kernel='rbf', C=10, gamma='scale', probability=True, random_state=42)
-    svm.fit(X_train_flat, y_train)
-    
-    train_time = time.time() - start
-    
-    y_pred = svm.predict(X_test_flat)
-    y_prob = svm.predict_proba(X_test_flat)[:, 1]
-    
-    acc = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
-    auc_score = roc_auc_score(y_test, y_prob)
-    
-    print(f"    Accuracy: {acc:.4f}, F1: {f1:.4f}, AUC: {auc_score:.4f}")
-    print(f"    Time: {train_time:.1f}s")
-    
-    return {
-        'accuracy': float(acc),
-        'f1': float(f1),
-        'auc': float(auc_score),
-        'params': 'N/A',
-        'train_time': float(train_time),
-        'y_pred': y_pred,
-        'y_true': y_test,
-        'y_prob': y_prob
-    }
+    def __init__(self, input_dim, channels=64, num_blocks=4, dropout=0.5):
+        super().__init__()
+        self.tcn = nn.Sequential(
+            *[
+                TCNBlock(
+                    input_dim if index == 0 else channels,
+                    channels,
+                    dilation=2**index,
+                    dropout=dropout,
+                )
+                for index in range(num_blocks)
+            ]
+        )
+        self.pool = nn.AdaptiveAvgPool1d(1)
+        self.classifier = nn.Sequential(
+            nn.Linear(channels, 32),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(32, 1),
+        )
+
+    def forward(self, x):
+        x = self.tcn(x.permute(0, 2, 1))
+        return self.classifier(self.pool(x).squeeze(-1))
 
 
-# ==============================================================================
-# 4. Train Random Forest Baseline
-# ==============================================================================
+def count_parameters(model):
+    return sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
 
-def train_random_forest(X_train_flat, y_train, X_test_flat, y_test):
-    """
-    Train Random Forest baseline.
-    
-    Returns:
-        dict: metrics
-    """
-    print("\n  Training Random Forest (200 trees)...")
-    print(f"    Input shape: {X_train_flat.shape}")
-    
-    start = time.time()
-    
-    rf = RandomForestClassifier(
-        n_estimators=200, max_depth=20, 
-        random_state=42, n_jobs=-1
+
+def save_checkpoint(payload, checkpoint_path, retries=5):
+    """Atomically replace checkpoints to avoid transient Windows file locks."""
+    temp_path = f"{checkpoint_path}.{os.getpid()}.tmp"
+    for attempt in range(retries):
+        try:
+            torch.save(payload, temp_path)
+            os.replace(temp_path, checkpoint_path)
+            return
+        except (OSError, RuntimeError):
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            if attempt == retries - 1:
+                raise
+            time.sleep(0.25 * (attempt + 1))
+
+
+def train_baseline(model, model_name, data, config, device, output_dir):
+    """Train one baseline with the same optimization protocol as the main model."""
+    os.makedirs(output_dir, exist_ok=True)
+    set_seed(config.seed)
+    loaders = make_trial_loaders(data, config, device)
+    test_loader = make_loader(
+        data["X_test"], data["y_test"], config.batch_size, False, device
     )
-    rf.fit(X_train_flat, y_train)
-    
-    train_time = time.time() - start
-    
-    y_pred = rf.predict(X_test_flat)
-    y_prob = rf.predict_proba(X_test_flat)[:, 1]
-    
-    acc = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
-    auc_score = roc_auc_score(y_test, y_prob)
-    
-    print(f"    Accuracy: {acc:.4f}, F1: {f1:.4f}, AUC: {auc_score:.4f}")
-    print(f"    Time: {train_time:.1f}s")
-    
+
+    n_male = int(np.sum(data["y_train"] == 0))
+    n_female = int(np.sum(data["y_train"] == 1))
+    criterion = nn.BCEWithLogitsLoss(
+        pos_weight=torch.tensor([n_male / max(n_female, 1)], device=device)
+    )
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=config.learning_rate,
+        weight_decay=config.weight_decay,
+    )
+    scheduler = build_scheduler(optimizer, config)
+    checkpoint_path = os.path.join(output_dir, "best_model.pth")
+    history = {
+        "train_loss": [],
+        "val_loss": [],
+        "train_acc": [],
+        "val_acc": [],
+        "train_f1": [],
+        "val_f1": [],
+        "lr": [],
+        "grad_norm": [],
+    }
+    best = None
+    epochs_without_f1_improvement = 0
+    started = time.time()
+
+    print(f"\nTraining {model_name}: {count_parameters(model):,} parameters")
+    for epoch in range(1, config.epochs + 1):
+        epoch_started = time.time()
+        current_lr = float(optimizer.param_groups[0]["lr"])
+        _, grad_norm = train_one_epoch(
+            model, loaders["train"], criterion, optimizer, device, config
+        )
+        train_loss, train_metrics, _, _, _ = evaluate_loader(
+            model, loaders["train_eval"], criterion, device
+        )
+        val_loss, val_metrics, _, _, _ = evaluate_loader(
+            model, loaders["val"], criterion, device
+        )
+        candidate = {
+            "epoch": epoch,
+            "val_loss": float(val_loss),
+            "val_acc": val_metrics["accuracy"],
+            "val_f1": val_metrics["f1"],
+            "train_loss": float(train_loss),
+            "train_acc": train_metrics["accuracy"],
+            "train_f1": train_metrics["f1"],
+            "f1_gap": max(0.0, train_metrics["f1"] - val_metrics["f1"]),
+            "learning_rate": current_lr,
+        }
+        for key in ("train_loss", "val_loss", "train_acc", "val_acc", "train_f1", "val_f1"):
+            history[key].append(candidate[key])
+        history["lr"].append(current_lr)
+        history["grad_norm"].append(grad_norm)
+
+        f1_improved = best is None or candidate["val_f1"] > best["val_f1"] + 1e-4
+        improved = is_better(candidate, best)
+        if improved:
+            best = candidate.copy()
+            save_checkpoint(
+                {
+                    **best,
+                    "model_name": model_name,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "hyperparameters": {
+                        **asdict(config),
+                        "input_dim": data["input_dim"],
+                        "time_steps": data["time_steps"],
+                    },
+                    "model_parameters": count_parameters(model),
+                },
+                checkpoint_path,
+            )
+        epochs_without_f1_improvement = (
+            0 if f1_improved else epochs_without_f1_improvement + 1
+        )
+
+        if config.scheduler == "plateau":
+            scheduler.step(val_loss)
+        else:
+            scheduler.step()
+
+        marker = " [BEST]" if improved else ""
+        print(
+            f"  epoch {epoch:02d}/{config.epochs} "
+            f"train_loss={train_loss:.4f} train_f1={train_metrics['f1']:.4f} "
+            f"val_loss={val_loss:.4f} val_acc={val_metrics['accuracy']:.4f} "
+            f"val_f1={val_metrics['f1']:.4f} lr={current_lr:.2e} "
+            f"time={time.time() - epoch_started:.1f}s{marker}"
+        )
+        if epochs_without_f1_improvement >= config.early_stopping_patience:
+            print(
+                f"  Early stopping after {config.early_stopping_patience} "
+                "epochs without val_f1 improvement."
+            )
+            break
+
+    history_path = os.path.join(output_dir, "history.json")
+    curves_path = os.path.join(output_dir, "training_curves.png")
+    with open(history_path, "w", encoding="utf-8") as file:
+        json.dump(history, file, indent=2)
+    plot_history(history, curves_path, model_name)
+
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    test_loss, test_metrics, y_pred, y_true, y_prob = evaluate_loader(
+        model, test_loader, criterion, device
+    )
+    auc_score = float(roc_auc_score(y_true, y_prob))
+    result = {
+        "model": model_name,
+        "config": asdict(config),
+        "best_epoch": int(checkpoint["epoch"]),
+        "best_val_loss": float(checkpoint["val_loss"]),
+        "best_val_acc": float(checkpoint["val_acc"]),
+        "best_val_f1": float(checkpoint["val_f1"]),
+        "train_f1_at_best": float(checkpoint["train_f1"]),
+        "f1_gap": float(checkpoint["f1_gap"]),
+        "learning_rate_at_best": float(checkpoint["learning_rate"]),
+        "epochs_ran": len(history["val_loss"]),
+        "test_loss": float(test_loss),
+        "accuracy": test_metrics["accuracy"],
+        "f1": test_metrics["f1"],
+        "auc": auc_score,
+        "params": count_parameters(model),
+        "train_time": time.time() - started,
+        "checkpoint_path": checkpoint_path,
+        "history_path": history_path,
+        "curves_path": curves_path,
+        "y_pred": y_pred,
+        "y_true": y_true,
+        "y_prob": y_prob,
+    }
+    serializable = {
+        key: value
+        for key, value in result.items()
+        if key not in {"y_pred", "y_true", "y_prob"}
+    }
+    with open(os.path.join(output_dir, "result.json"), "w", encoding="utf-8") as file:
+        json.dump(serializable, file, indent=2)
+    print(
+        f"  Best epoch={result['best_epoch']} val_f1={result['best_val_f1']:.4f} "
+        f"test_acc={result['accuracy']:.4f} test_f1={result['f1']:.4f}"
+    )
+    return result
+
+
+def load_main_model_result(outputs_dir):
+    eval_path = os.path.join(outputs_dir, "evaluation_summary.json")
+    paths = {
+        "pred": os.path.join(outputs_dir, "test_preds.npy"),
+        "label": os.path.join(outputs_dir, "test_labels.npy"),
+        "prob": os.path.join(outputs_dir, "test_probs.npy"),
+    }
+    if not os.path.exists(eval_path) or not all(os.path.exists(path) for path in paths.values()):
+        return None
+
+    with open(eval_path, "r", encoding="utf-8") as file:
+        summary = json.load(file)
+    best_config_path = os.path.join(outputs_dir, "best_config.json")
+    best_config = {}
+    if os.path.exists(best_config_path):
+        with open(best_config_path, "r", encoding="utf-8") as file:
+            best_config = json.load(file)
+    checkpoint_path = os.path.join(outputs_dir, "best_model.pth")
+    checkpoint = {}
+    if os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    y_pred = np.load(paths["pred"])
+    y_true = np.load(paths["label"])
+    y_prob = np.load(paths["prob"])
     return {
-        'accuracy': float(acc),
-        'f1': float(f1),
-        'auc': float(auc_score),
-        'params': 'N/A',
-        'train_time': float(train_time),
-        'y_pred': y_pred,
-        'y_true': y_test,
-        'y_prob': y_prob
+        "model": "TCN+Transformer+Attention",
+        "accuracy": float(summary["accuracy"]),
+        "f1": float(summary["f1_score"]),
+        "auc": float(roc_auc_score(y_true, y_prob)),
+        "params": summary.get(
+            "model_parameters", checkpoint.get("model_parameters", "N/A")
+        ),
+        "train_time": "N/A",
+        "best_epoch": summary.get("best_epoch", best_config.get("best_epoch")),
+        "best_val_loss": summary.get(
+            "best_val_loss",
+            best_config.get("best_val_loss", summary.get("val_loss")),
+        ),
+        "best_val_acc": summary.get(
+            "best_val_acc", best_config.get("best_val_acc")
+        ),
+        "best_val_f1": summary.get(
+            "best_val_f1", best_config.get("best_val_f1")
+        ),
+        "y_pred": y_pred,
+        "y_true": y_true,
+        "y_prob": y_prob,
     }
 
-
-# ==============================================================================
-# 5. Plot So Sánh
-# ==============================================================================
 
 def plot_baseline_comparison(results, save_path):
-    """
-    Vẽ bar chart so sánh 4 models.
-    
-    Args:
-        results   : Dict {model_name: {accuracy, f1, auc}}
-        save_path : Đường dẫn lưu PNG
-    """
-    model_names = list(results.keys())
-    metrics = ['accuracy', 'f1', 'auc']
-    metric_labels = ['Accuracy', 'F1 Score', 'AUC']
-    colors = ['#2196F3', '#4CAF50', '#FF9800', '#F44336']
-    
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    
-    x = np.arange(len(model_names))
-    bar_width = 0.6
-    
-    for idx, (metric, label) in enumerate(zip(metrics, metric_labels)):
-        ax = axes[idx]
-        values = [results[name][metric] for name in model_names]
-        
-        bars = ax.bar(x, values, bar_width, color=colors[:len(model_names)], 
-                      edgecolor='white', linewidth=1.5, alpha=0.85)
-        
-        # Giá trị trên mỗi bar
-        for bar, val in zip(bars, values):
-            ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.005,
-                   f'{val:.4f}', ha='center', va='bottom', fontweight='bold', fontsize=11)
-        
-        ax.set_xlabel('Model', fontsize=12, fontweight='bold')
-        ax.set_ylabel(label, fontsize=12, fontweight='bold')
-        ax.set_title(f'{label} Comparison', fontsize=14, fontweight='bold')
+    names = list(results)
+    metrics = [("accuracy", "Accuracy"), ("f1", "F1 Score"), ("auc", "AUC")]
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    x = np.arange(len(names))
+    colors = ["#1f77b4", "#2ca02c", "#ff7f0e"]
+    all_values = [results[name][metric] for name in names for metric, _ in metrics]
+    lower_bound = max(0.0, min(all_values) - 0.05)
+
+    for ax, (metric, label) in zip(axes, metrics):
+        values = [results[name][metric] for name in names]
+        bars = ax.bar(x, values, color=colors[: len(names)], alpha=0.85)
+        for bar, value in zip(bars, values):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                value + 0.003,
+                f"{value:.4f}",
+                ha="center",
+                fontsize=10,
+            )
+        ax.set_title(label)
         ax.set_xticks(x)
-        ax.set_xticklabels(model_names, rotation=15, ha='right', fontsize=9)
-        ax.set_ylim([0.7, 1.05])
-        ax.grid(True, alpha=0.3, axis='y')
-        ax.axhline(y=0.95, color='red', linestyle='--', alpha=0.4, label='Target (0.95)')
-        ax.legend(fontsize=9)
-    
-    plt.suptitle('Model Comparison — Gender Voice Classification',
-                fontsize=16, fontweight='bold', y=1.02)
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"\n  Saved → {save_path}")
+        ax.set_xticklabels(names, rotation=15, ha="right")
+        ax.set_ylim(lower_bound, 1.01)
+        ax.grid(True, axis="y", alpha=0.3)
+
+    fig.suptitle("Synchronized Baseline Comparison")
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
-def plot_all_confusion_matrices(results, save_path):
-    """
-    Vẽ confusion matrix cho tất cả models trong 1 figure.
-    """
-    model_names = list(results.keys())
-    n_models = len(model_names)
-    
-    fig, axes = plt.subplots(1, n_models, figsize=(5 * n_models, 5))
-    if n_models == 1:
-        axes = [axes]
-    
-    class_names = ['Male', 'Female']
-    
-    for idx, name in enumerate(model_names):
-        ax = axes[idx]
-        r = results[name]
-        cm = confusion_matrix(r['y_true'], r['y_pred'])
-        
-        im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
-        
-        ax.set(xticks=[0, 1], yticks=[0, 1],
-               xticklabels=class_names, yticklabels=class_names)
-        ax.set_xlabel('Predicted', fontsize=10, fontweight='bold')
-        ax.set_ylabel('True', fontsize=10, fontweight='bold')
-        ax.set_title(f'{name}', fontsize=11, fontweight='bold')
-        
-        thresh = cm.max() / 2.
-        for i in range(2):
-            for j in range(2):
-                color = "white" if cm[i, j] > thresh else "black"
-                ax.text(j, i, f"{cm[i,j]}", ha="center", va="center",
-                       color=color, fontsize=14, fontweight='bold')
-    
-    plt.suptitle('Confusion Matrices — All Models', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  Saved → {save_path}")
+def plot_confusion_matrices(results, save_path):
+    names = list(results)
+    fig, axes = plt.subplots(1, len(names), figsize=(5 * len(names), 5))
+    axes = np.atleast_1d(axes)
+    for ax, name in zip(axes, names):
+        matrix = confusion_matrix(results[name]["y_true"], results[name]["y_pred"])
+        ax.imshow(matrix, interpolation="nearest", cmap="Blues")
+        ax.set_title(name)
+        ax.set_xticks([0, 1], labels=["Male", "Female"])
+        ax.set_yticks([0, 1], labels=["Male", "Female"])
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("True")
+        threshold = matrix.max() / 2
+        for row in range(2):
+            for column in range(2):
+                ax.text(
+                    column,
+                    row,
+                    str(matrix[row, column]),
+                    ha="center",
+                    va="center",
+                    color="white" if matrix[row, column] > threshold else "black",
+                    fontsize=14,
+                    fontweight="bold",
+                )
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
-
-# ==============================================================================
-# 6. Main
-# ==============================================================================
 
 def main():
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
-    DATASET_DIR = os.path.join(PROJECT_DIR, "dataset")
-    OUTPUTS_DIR = os.path.join(PROJECT_DIR, "outputs")
-    
-    print("=" * 70)
-    print("  BASELINE MODELS & COMPARISON")
-    print("=" * 70)
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
-    
-    # ==== Load Data ====
-    print("\n[1] Loading data...")
-    X, y, sample_ids, group_ids = build_dataset(dataset_dir=DATASET_DIR, cache_dir=OUTPUTS_DIR)
-    
-    # Group split (same as train.py) to avoid repeated utterance leakage.
-    SEED = 42
-    np.random.seed(SEED)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_dir = os.path.dirname(script_dir)
+    outputs_dir = os.path.join(project_dir, "outputs")
+    baseline_dir = os.path.join(outputs_dir, "baselines")
+    os.makedirs(baseline_dir, exist_ok=True)
 
-    train_idx, val_idx, test_idx = make_group_split(y, group_ids.astype(str), seed=SEED)
-    X_train, y_train = X[train_idx], y[train_idx]
-    X_val, y_val = X[val_idx], y[val_idx]
-    X_test, y_test = X[test_idx], y[test_idx]
-    
-    print(f"  Train: {X_train.shape[0]}, Val: {X_val.shape[0]}, Test: {X_test.shape[0]}")
-    
-    # Normalize (same stats as training)
-    train_mean = np.mean(X_train, axis=(0, 1))
-    train_std = np.std(X_train, axis=(0, 1))
-    train_std[train_std == 0] = 1e-8
-    
-    X_train_norm = (X_train - train_mean) / train_std
-    X_val_norm = (X_val - train_mean) / train_std
-    X_test_norm = (X_test - train_mean) / train_std
-    
-    # Flatten for ML models: (N, 94, 60) → (N, 5640)
-    X_train_flat = X_train_norm.reshape(X_train_norm.shape[0], -1)
-    X_test_flat = X_test_norm.reshape(X_test_norm.shape[0], -1)
-    
-    print(f"  Flattened shape: {X_train_flat.shape}")
-    
-    # ==== Train Baselines ====
-    print("\n[2] Training baselines...")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("=" * 72)
+    print("SYNCHRONIZED PURE CNN / PURE TCN BASELINES")
+    print("=" * 72)
+    print(f"Device: {device}")
+
+    config = TrainConfig()
+    data = prepare_data(project_dir, outputs_dir, config.seed)
+    print("Protocol:", json.dumps(asdict(config), indent=2))
+
+    model_specs = [
+        (
+            "Pure CNN",
+            "pure_cnn",
+            lambda: PureCNN(
+                data["input_dim"], channels=64, dropout=config.dropout
+            ),
+        ),
+        (
+            "Pure TCN",
+            "pure_tcn",
+            lambda: PureTCN(
+                data["input_dim"],
+                channels=32,
+                num_blocks=3,
+                dropout=config.dropout,
+            ),
+        ),
+    ]
     results = {}
-    
-    # B1: SVM
-    print("\n" + "-" * 50)
-    results['SVM (RBF)'] = train_svm(X_train_flat, y_train, X_test_flat, y_test)
-    
-    # B2: Random Forest
-    print("\n" + "-" * 50)
-    results['Random Forest'] = train_random_forest(X_train_flat, y_train, X_test_flat, y_test)
-    
-    # B3: Simple 1D-CNN
-    print("\n" + "-" * 50)
-    results['Simple 1D-CNN'] = train_simple_cnn(
-        X_train_norm, y_train, X_val_norm, y_val, X_test_norm, y_test, device
+    for model_name, folder_name, model_factory in model_specs:
+        set_seed(config.seed)
+        model = model_factory().to(device)
+        result = train_baseline(
+            model,
+            model_name,
+            data,
+            config,
+            device,
+            os.path.join(baseline_dir, folder_name),
+        )
+        results[model_name] = result
+
+    main_result = load_main_model_result(outputs_dir)
+    if main_result is not None:
+        results[main_result["model"]] = main_result
+
+    print("\n" + "=" * 96)
+    print("COMPARISON")
+    print("=" * 96)
+    print(
+        f"{'Model':<30} {'Accuracy':>10} {'F1':>10} {'AUC':>10} "
+        f"{'Best val F1':>12} {'Best epoch':>11} {'Params':>10}"
     )
-    
-    # ==== Load Main Model Results ====
-    print("\n[3] Loading main model results...")
-    eval_path = os.path.join(OUTPUTS_DIR, "evaluation_summary.json")
-    
-    if os.path.exists(eval_path):
-        with open(eval_path, 'r') as f:
-            eval_summary = json.load(f)
-        
-        # Load test predictions
-        test_preds = np.load(os.path.join(OUTPUTS_DIR, "test_preds.npy"))
-        test_labels = np.load(os.path.join(OUTPUTS_DIR, "test_labels.npy"))
-        test_probs = np.load(os.path.join(OUTPUTS_DIR, "test_probs.npy"))
-        
-        results['TCN+Trans+Attn'] = {
-            'accuracy': eval_summary['accuracy'],
-            'f1': eval_summary['f1_score'],
-            'auc': eval_summary['auc'],
-            'params': '~118K',
-            'train_time': 'N/A',
-            'y_pred': test_preds,
-            'y_true': test_labels,
-            'y_prob': test_probs
-        }
-        print(f"  Main model: Acc={eval_summary['accuracy']:.4f}, F1={eval_summary['f1_score']:.4f}")
-    else:
-        print("  [WARNING] evaluation_summary.json not found. Run train.py + evaluate.py first!")
-        print("  Skipping main model in comparison.")
-    
-    # ==== Comparison Table ====
-    print("\n" + "=" * 70)
-    print("  COMPARISON TABLE")
-    print("=" * 70)
-    print(f"\n  {'Model':<25} {'Accuracy':>10} {'F1':>10} {'AUC':>10} {'Params':>10}")
-    print(f"  {'-'*65}")
-    for name, r in results.items():
-        print(f"  {name:<25} {r['accuracy']:>10.4f} {r['f1']:>10.4f} {r['auc']:>10.4f} {str(r['params']):>10}")
-    print(f"  {'-'*65}")
-    
-    # ==== Plot ====
-    print("\n[4] Generating comparison plots...")
-    
-    # Chuẩn bị results cho plot (loại bỏ numpy arrays)
-    plot_results = {}
-    for name, r in results.items():
-        plot_results[name] = {
-            'accuracy': r['accuracy'],
-            'f1': r['f1'],
-            'auc': r['auc']
-        }
-    
+    for name, result in results.items():
+        best_val_f1 = result.get("best_val_f1")
+        best_epoch = result.get("best_epoch")
+        print(
+            f"{name:<30} {result['accuracy']:>10.4f} {result['f1']:>10.4f} "
+            f"{result['auc']:>10.4f} "
+            f"{best_val_f1 if best_val_f1 is not None else float('nan'):>12.4f} "
+            f"{str(best_epoch):>11} {str(result['params']):>10}"
+        )
+
     plot_baseline_comparison(
-        plot_results,
-        save_path=os.path.join(OUTPUTS_DIR, "baseline_comparison.png")
+        results, os.path.join(outputs_dir, "baseline_comparison.png")
     )
-    
-    plot_all_confusion_matrices(
-        results,
-        save_path=os.path.join(OUTPUTS_DIR, "baseline_confusion_matrices.png")
+    plot_confusion_matrices(
+        results, os.path.join(outputs_dir, "baseline_confusion_matrices.png")
     )
-    
-    # ==== Save Results JSON ====
-    print("\n[5] Saving results...")
-    save_results = {}
-    for name, r in results.items():
-        save_results[name] = {
-            'accuracy': r['accuracy'],
-            'f1': r['f1'],
-            'auc': r['auc'],
-            'params': str(r['params']),
-            'train_time': r.get('train_time', 'N/A')
+    serializable_results = {
+        name: {
+            key: value
+            for key, value in result.items()
+            if key not in {"y_pred", "y_true", "y_prob"}
         }
-    
-    results_path = os.path.join(OUTPUTS_DIR, "baseline_results.json")
-    with open(results_path, 'w') as f:
-        json.dump(save_results, f, indent=2)
-    print(f"  Saved → {results_path}")
-    
-    print("\n" + "=" * 70)
-    print("  BASELINE COMPARISON COMPLETE")
-    print("=" * 70)
+        for name, result in results.items()
+    }
+    with open(
+        os.path.join(outputs_dir, "baseline_results.json"), "w", encoding="utf-8"
+    ) as file:
+        json.dump(serializable_results, file, indent=2)
+    print(f"\nSaved baseline artifacts to: {baseline_dir}")
 
 
 if __name__ == "__main__":

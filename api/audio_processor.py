@@ -86,7 +86,7 @@ def convert_to_wav(input_path: str, output_path: str) -> str:
 
 
 def process_audio_file(file_path: str, sr: int = 16000,
-                       duration: float = 3.0, n_mfcc: int = 20) -> np.ndarray:
+                       duration: float = 3.0, n_mfcc: int = 13) -> np.ndarray:
     """
     Xử lý file audio đã lưu trên đĩa và trích xuất đặc trưng MFCC.
 
@@ -96,10 +96,10 @@ def process_audio_file(file_path: str, sr: int = 16000,
         file_path (str)  : Đường dẫn tuyệt đối tới file audio
         sr        (int)  : Sample rate mục tiêu (16000)
         duration  (float): Độ dài cắt/pad (3.0s)
-        n_mfcc    (int)  : Số hệ số MFCC (20)
+        n_mfcc    (int)  : Số hệ số MFCC mà mô hình yêu cầu
 
     Returns:
-        np.ndarray: Ma trận MFCC shape (T, 60) — T~94 frames, 60 features
+        np.ndarray: Ma trận MFCC shape (T, n_mfcc)
     """
     file_ext = os.path.splitext(file_path)[1].lower()
     wav_path = None
@@ -128,7 +128,7 @@ def process_audio_file(file_path: str, sr: int = 16000,
             os.remove(wav_path)
 
 
-async def process_upload(upload_file) -> np.ndarray:
+async def process_upload(upload_file, n_mfcc: int = 13) -> np.ndarray:
     """
     Xử lý file audio từ UploadFile của FastAPI.
 
@@ -143,7 +143,7 @@ async def process_upload(upload_file) -> np.ndarray:
         upload_file: đối tượng UploadFile từ FastAPI
 
     Returns:
-        np.ndarray: Ma trận MFCC features shape (T, 60)
+        np.ndarray: Ma trận MFCC features shape (T, n_mfcc)
 
     Raises:
         Exception: Nếu file audio không hợp lệ hoặc không đọc được
@@ -160,7 +160,7 @@ async def process_upload(upload_file) -> np.ndarray:
             f.write(content)
 
         # Trích xuất MFCC từ file tạm (tự động convert nếu cần)
-        mfcc = process_audio_file(temp_path)
+        mfcc = process_audio_file(temp_path, n_mfcc=n_mfcc)
 
         return mfcc
 
